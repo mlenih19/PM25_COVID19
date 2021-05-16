@@ -1,0 +1,84 @@
+import os
+import pandas as pd
+import geopandas as gpd
+import numpy as np
+import time
+import matplotlib.pyplot as plt
+from gammy.utils import pipe
+from gammy.arraymapper import x
+from shapely.geometry import Point
+from datetime import date
+%matplotlib inline
+
+pd.set_option('display.max_columns',None)
+pd.set_option('display.max_rows',None)
+
+os.chdir('/Users/marieanns/Desktop/marieanns/MScGIS/Thesis/data')
+
+pm25=gpd.read_file('WA_ad_viz_plotval_data.csv')
+pm25.head()
+pm25.info()
+pm25.AQS_PARAMETER_DESC.unique()
+pm25.CBSA_CODE.unique()
+pm25.replace({'CBSA_CODE':{'36830':'1',
+                           '30300':'2',
+                           '28420':'2',
+                           '48300':'2',
+                           '38820':'1',
+                           '38900':'2',
+                           '47460':'2',
+                           '31020':'2',
+                           '':'0',
+                           '34180':'1',
+                           '10140':'1',
+                           '42660':'2',
+                           '14740':'2',
+                           '21260':'1',
+                           '16500':'1',
+                           '43220':'1',
+                           '44060':'2',
+                           '34580':'2',
+                           '36500':'2',
+                           '13380':'2',
+                           '39420':'1',
+                           '49420':'2'}}, inplace=True)
+pm25.drop(pm25.columns[[1,2,3,5,7,8,9,10,11,13,14,15,16,20]], axis=1, inplace=True)
+pm25['Date']=pm25['Date'].astype('datetime64[ns]')
+pm25['Daily Mean PM2.5 Concentration']=pm25['Daily Mean PM2.5 Concentration'].astype(dtype=float)
+pm25['DAILY_AQI_VALUE']=pm25['DAILY_AQI_VALUE'].astype(dtype=int)
+pm25['CBSA_CODE']=pm25['CBSA_CODE'].astype(dtype=int)
+pm25['SITE_LATITUDE']=pm25['SITE_LATITUDE'].astype(dtype=float)
+pm25['SITE_LONGITUDE']=pm25['SITE_LONGITUDE'].astype(dtype=float)
+pm25=pm25.loc[(pm25['Date']>='2020-03-09')
+              &(pm25['Date']<'2020-12-28')]
+pm25.reset_index(drop=True,inplace=True)
+wk_pm25=pm25.set_index('Date').groupby('COUNTY').resample('W-SUN').mean()
+wk_pm25=wk_pm25.reset_index()
+wk_pm25['Identifier']=wk_pm25.apply(lambda x:[x.COUNTY,x.Date],axis=1)
+wk_pm25['id_value']=[','.join(map(str,l))for l in wk_pm25['Identifier']]
+wk_pm25['id_value']=wk_pm25['id_value'].str.replace(' ','')
+
+cvd19_hosp=gpd.read_file('WA_COVID19_Hospitalizations.csv')
+cvd19_hosp.head()
+cvd19_hosp['County']=cvd19_hosp['County'].str.rstrip('County')
+cvd19_hosp.info()
+cvd19_hosp.drop(cvd19_hosp.columns[[10,11]], axis=1, inplace=True)
+cvd19_hosp=cvd19_hosp[cvd19_hosp['WeekStartDate']!='Unknown']
+cvd19_hosp['Date']=pd.to_datetime(cvd19_hosp['WeekStartDate'],format='%Y-%m-%d')
+cvd19_hosp.drop('WeekStartDate',axis=1,inplace=True)
+cvd19_hosp=cvd19_hosp.drop(cvd19_hosp[cvd19_hosp['County']=='Unassigned'].index)
+cvd19_hosp['Hospitalizations']=cvd19_hosp['Hospitalizations'].astype(dtype=int)
+cvd19_hosp['Age 0-19']=cvd19_hosp['Age 0-19'].astype(dtype=int)
+cvd19_hosp['Age 20-34']=cvd19_hosp['Age 20-34'].astype(dtype=int)
+cvd19_hosp['Age 35-49']=cvd19_hosp['Age 35-49'].astype(dtype=int)
+cvd19_hosp['Age 50-64']=cvd19_hosp['Age 50-64'].astype(dtype=int)
+cvd19_hosp['Age 65-79']=cvd19_hosp['Age 65-79'].astype(dtype=int)
+cvd19_hosp['Age 80+']=cvd19_hosp['Age 80+'].astype(dtype=int)
+cvd19_hosp['UnknownAge']=cvd19_hosp['UnknownAge'].astype(dtype=int)
+cvd19_hosp['Identifier']=cvd19_hosp.apply(lambda x:[x.COUNTY,x.Date],axis=1)
+cvd19_hosp['id_value']=[','.join(map(str,l))for l in cvd19_hosp['Identifier']]
+cvd19_hosp['id_value']=cvd19_hosp['id_value'].str.replace(' ','_')
+cvd19_hosp['id_value']=cvd19_hosp['id_value'].str.replace('_','')
+
+pm25_cvd_test=pd.merge(wk_pm25,cvd19_hosp,how='left',on='id_value')
+pm25_cvd_test.head()
