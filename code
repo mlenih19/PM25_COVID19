@@ -2,18 +2,54 @@ import os
 import pandas as pd
 import geopandas as gpd
 import numpy as np
-import time
+import datetime
+import seaborn as sns
+import matplotlib as mpl
 import matplotlib.pyplot as plt
-from gammy.utils import pipe
-from gammy.arraymapper import x
+import plotly
+import chart_studio.plotly as py
+import plotly.express as px 
+import plotly.graph_objects as go
+import cufflinks as cf
+import folium
+import rasterio
+import glob
+import sklearn.metrics as metrics
+
 from shapely.geometry import Point
 from datetime import date
-%matplotlib inline
+from plotly.offline import download_plotlyjs, init_notebook_mode, plot, iplot
+from folium.plugins import HeatMapWithTime
+from folium.plugins import HeatMap
+from geopandas import GeoDataFrame as gdf
+from rasterio.plot import show
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import classification_report,confusion_matrix
+from sklearn.metrics import roc_curve, auc
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import validation_curve
+from sklearn.svm import SVC
+from sklearn.svm import SVR
+from sklearn.model_selection import GridSearchCV
+from sklearn import linear_model
+from sklearn.linear_model import LinearRegression
+from statsmodels.tools.tools import add_constant
+from numpy import mean
+from numpy import std
+from numpy import cov
+from scipy.stats import pearsonr
+from scipy.stats import spearmanr
 
+%matplotlib inline
+init_notebook_mode(connected=True) 
+cf.go_offline() 
 pd.set_option('display.max_columns',None)
 pd.set_option('display.max_rows',None)
-
 os.chdir('/Users/marieanns/Desktop/marieanns/MScGIS/Thesis/data')
+
+#ANALYSIS ON WASHINGTON STATE LEVEL
 
 pm25=gpd.read_file('WA_ad_viz_plotval_data.csv')
 pm25.head()
@@ -44,11 +80,12 @@ pm25.replace({'CBSA_CODE':{'36830':'1',
                            '49420':'2'}}, inplace=True)
 pm25.drop(pm25.columns[[1,2,3,5,7,8,9,10,11,13,14,15,16,20]], axis=1, inplace=True)
 pm25['Date']=pm25['Date'].astype('datetime64[ns]')
-pm25['Daily Mean PM2.5 Concentration']=pm25['Daily Mean PM2.5 Concentration'].astype(dtype=float)
-pm25['DAILY_AQI_VALUE']=pm25['DAILY_AQI_VALUE'].astype(dtype=int)
-pm25['CBSA_CODE']=pm25['CBSA_CODE'].astype(dtype=int)
-pm25['SITE_LATITUDE']=pm25['SITE_LATITUDE'].astype(dtype=float)
-pm25['SITE_LONGITUDE']=pm25['SITE_LONGITUDE'].astype(dtype=float)
+pm25['PM25']=pm25['Daily Mean PM2.5 Concentration'].astype(dtype=float)
+pm25['Severity']=pm25['DAILY_AQI_VALUE'].astype(dtype=int)
+pm25['Area']=pm25['CBSA_CODE'].astype(dtype=int)
+pm25['Latitude']=pm25['SITE_LATITUDE'].astype(dtype=float)
+pm25['Longitude']=pm25['SITE_LONGITUDE'].astype(dtype=float)
+pm25.drop(pm25.columns[[1,2,5,6]], axis=1, inplace=True)
 pm25=pm25.loc[(pm25['Date']>='2020-03-09')
               &(pm25['Date']<'2020-12-28')]
 pm25.reset_index(drop=True,inplace=True)
@@ -57,11 +94,9 @@ wk_pm25=wk_pm25.reset_index()
 wk_pm25['Identifier']=wk_pm25.apply(lambda x:[x.COUNTY,x.Date],axis=1)
 wk_pm25['id_value']=[','.join(map(str,l))for l in wk_pm25['Identifier']]
 wk_pm25['id_value']=wk_pm25['id_value'].str.replace(' ','')
-
+wk_pm25.drop(wk_pm25.columns[[7]], axis=1, inplace=True)
 cvd19_hosp=gpd.read_file('WA_COVID19_Hospitalizations.csv')
-cvd19_hosp.head()
 cvd19_hosp['County']=cvd19_hosp['County'].str.rstrip('County')
-cvd19_hosp.info()
 cvd19_hosp.drop(cvd19_hosp.columns[[10,11]], axis=1, inplace=True)
 cvd19_hosp=cvd19_hosp[cvd19_hosp['WeekStartDate']!='Unknown']
 cvd19_hosp['Date']=pd.to_datetime(cvd19_hosp['WeekStartDate'],format='%Y-%m-%d')
@@ -75,10 +110,395 @@ cvd19_hosp['Age 50-64']=cvd19_hosp['Age 50-64'].astype(dtype=int)
 cvd19_hosp['Age 65-79']=cvd19_hosp['Age 65-79'].astype(dtype=int)
 cvd19_hosp['Age 80+']=cvd19_hosp['Age 80+'].astype(dtype=int)
 cvd19_hosp['UnknownAge']=cvd19_hosp['UnknownAge'].astype(dtype=int)
-cvd19_hosp['Identifier']=cvd19_hosp.apply(lambda x:[x.COUNTY,x.Date],axis=1)
+cvd19_hosp['Identifier']=cvd19_hosp.apply(lambda x:[x.County,x.Date],axis=1)
 cvd19_hosp['id_value']=[','.join(map(str,l))for l in cvd19_hosp['Identifier']]
 cvd19_hosp['id_value']=cvd19_hosp['id_value'].str.replace(' ','_')
 cvd19_hosp['id_value']=cvd19_hosp['id_value'].str.replace('_','')
+cvd19_hosp.drop(cvd19_hosp.columns[[0,2,3,4,5,6,7,8,9,10]], axis=1, inplace=True)
+cvd19_case=gpd.read_file('WA_COVID19_Cases.csv')
+cvd19_case['County']=cvd19_case['County'].str.rstrip('County')
+cvd19_case.drop(cvd19_case.columns[[12,13]], axis=1, inplace=True)
+cvd19_case=cvd19_case[cvd19_case['WeekStartDate']!='Unknown']
+cvd19_case['Date']=pd.to_datetime(cvd19_case['WeekStartDate'],format='%m/%d/%y')
+cvd19_case.drop('WeekStartDate',axis=1,inplace=True)
+cvd19_case=cvd19_case.drop(cvd19_case[cvd19_case['County']=='Unassigned'].index)
+cvd19_case['TotalCases']=cvd19_case['TotalCases'].astype(dtype=int)
+cvd19_case['Age 0-19']=cvd19_case['Age 0-19'].astype(dtype=int)
+cvd19_case['Age 20-34']=cvd19_case['Age 20-34'].astype(dtype=int)
+cvd19_case['Age 35-49']=cvd19_case['Age 35-49'].astype(dtype=int)
+cvd19_case['Age 50-64']=cvd19_case['Age 50-64'].astype(dtype=int)
+cvd19_case['Age 65-79']=cvd19_case['Age 65-79'].astype(dtype=int)
+cvd19_case['Age 80+']=cvd19_case['Age 80+'].astype(dtype=int)
+cvd19_case['UnknownAge']=cvd19_case['UnknownAge'].astype(dtype=int)
+cvd19_case['Identifier']=cvd19_case.apply(lambda x:[x.County,x.Date],axis=1)
+cvd19_case['id_value']=[','.join(map(str,l))for l in cvd19_case['Identifier']]
+cvd19_case['id_value']=cvd19_case['id_value'].str.replace(' ','_')
+cvd19_case['id_value']=cvd19_case['id_value'].str.replace('_','')
+cvd19_case.drop(cvd19_case.columns[[0,1,2,4,5,6,7,8,9,10,11,12]], axis=1, inplace=True)
+cvd19_dth=gpd.read_file('WA_COVID19_Deaths.csv')
+cvd19_dth['County']=cvd19_dth['County'].str.rstrip('County')
+cvd19_dth.drop(cvd19_dth.columns[[10,11]], axis=1, inplace=True)
+cvd19_dth=cvd19_dth[cvd19_dth['WeekStartDate']!='Unknown']
+cvd19_dth['Date']=pd.to_datetime(cvd19_dth['WeekStartDate'],format='%m/%d/%y')
+cvd19_dth.drop('WeekStartDate',axis=1,inplace=True)
+cvd19_dth=cvd19_dth.drop(cvd19_dth[cvd19_dth['County']=='Unassigned'].index)
+cvd19_dth['Deaths']=cvd19_dth['Deaths'].astype(dtype=int)
+cvd19_dth['Age 0-19']=cvd19_dth['Age 0-19'].astype(dtype=int)
+cvd19_dth['Age 20-34']=cvd19_dth['Age 20-34'].astype(dtype=int)
+cvd19_dth['Age 35-49']=cvd19_dth['Age 35-49'].astype(dtype=int)
+cvd19_dth['Age 50-64']=cvd19_dth['Age 50-64'].astype(dtype=int)
+cvd19_dth['Age 65-79']=cvd19_dth['Age 65-79'].astype(dtype=int)
+cvd19_dth['Age 80+']=cvd19_dth['Age 80+'].astype(dtype=int)
+cvd19_dth['UnknownAge']=cvd19_dth['UnknownAge'].astype(dtype=int)
+cvd19_dth['Identifier']=cvd19_dth.apply(lambda x:[x.County,x.Date],axis=1)
+cvd19_dth['id_value']=[','.join(map(str,l))for l in cvd19_dth['Identifier']]
+cvd19_dth['id_value']=cvd19_dth['id_value'].str.replace(' ','_')
+cvd19_dth['id_value']=cvd19_dth['id_value'].str.replace('_','')
+cvd19_dth.drop(cvd19_dth.columns[[0,2,3,4,5,6,7,8,9,10]], axis=1, inplace=True)
+cvd19_df=pd.merge(wk_pm25,cvd19_hosp,how='left',on='id_value')
+cvd19_df=pd.merge(cvd19_df,cvd19_case,how='left',on='id_value')
+cvd19_df=pd.merge(cvd19_df,cvd19_dth,how='left',on='id_value')
+cvd19_df.drop(cvd19_df.columns[[7]], axis=1, inplace=True)
+cvd19_df['Hospitalizations']=cvd19_df['Hospitalizations'].fillna(0)
+cvd19_df['TotalCases']=cvd19_df['TotalCases'].fillna(0)
+cvd19_df['Deaths']=cvd19_df['Deaths'].fillna(0)
+cvd19_df['Hosp_Lag_1w']=cvd19_df['Hospitalizations'].shift(1)
+cvd19_df['Case_Lag_1w']=cvd19_df['TotalCases'].shift(1)
+cvd19_df['Death_Lag_1w']=cvd19_df['Deaths'].shift(1)
+cvd19_df=cvd19_df.loc[(cvd19_df['Date']>='2020-03-16')
+              &(cvd19_df['Date']<'2020-12-27')]
+is_NaN=cvd19_df.isnull()
+row_has_NaN=is_NaN.any(axis=1)
+rows_with_NaN=cvd19_df[row_has_NaN]
+print(rows_with_NaN)
+cvd19_df.dropna(inplace=True)
+fig,ax=plt.subplots(figsize=(12,12))
+sns.heatmap(cvd19_df.corr(),cmap='icefire',annot=True) 
+cvd19_df.drop(cvd19_df.columns[[7,8,9]], axis=1, inplace=True)
+geometry=[Point(xy) for xy in zip(cvd19_df['Longitude'], cvd19_df['Latitude'])]
+crs={'init':'epsg:4326'}
+cvd19_df=gpd.GeoDataFrame(cvd19_df,crs=crs,geometry=geometry)
+waste=rasterio.open('tiffs/hazard_waste_4326.tif')
+water=rasterio.open('tiffs/wastewater_4326.tif')
+toxic=rasterio.open('tiffs/toxic_4326.tif')
+traffic=rasterio.open('tiffs/heavy_traffic_4326.tif')
+ethnicity=rasterio.open('tiffs/people_of_color_4326.tif')
+unemployment=rasterio.open('tiffs/unemployed_popn_4326.tif')
+sensitive=rasterio.open('tiffs/sensitive_popn_4326.tif')
+english=rasterio.open('tiffs/limited_eng_4326.tif')
+temp=rasterio.open('tiffs/temp_0320_1220.tif')
+coords=[(x,y) for x, y in zip(cvd19_df.Longitude, cvd19_df.Latitude)] 
+cvd19_df['Waste']=[x[0] for x in waste.sample(coords)]
+cvd19_df['Water']=[x[0] for x in water.sample(coords)]
+cvd19_df['Toxic']=[x[0] for x in toxic.sample(coords)]
+cvd19_df['Traffic']=[x[0] for x in traffic.sample(coords)]
+cvd19_df['Ethnicity']=[x[0] for x in ethnicity.sample(coords)]
+cvd19_df['Unemployment']=[x[0] for x in unemployment.sample(coords)]
+cvd19_df['Sensitive_Health']=[x[0] for x in sensitive.sample(coords)]
+cvd19_df['English']=[x[0] for x in english.sample(coords)]
+cvd19_df['Temperature']=[x[0] for x in temp.sample(coords)]
+cvd19_df.drop(['geometry'], axis=1, inplace=True)
+fig, ax = plt.subplots(figsize=(16,16))
+sns.heatmap(cvd19_df.corr(), cmap='icefire', annot=True) 
+cvd19_df.drop(cvd19_df.columns[[3,11,13,15,17]], axis=1, inplace=True)
+fig, ax = plt.subplots(figsize=(16,16))
+sns.heatmap(cvd19_df.corr(), cmap='icefire', annot=True) 
+print('PM 2.5 SD:',cvd19_df.std()['PM25'])
+print('PM 2.5 Mean:',cvd19_df.mean()['PM25'])
+print('Total Cases, 1 week lag, SD:',cvd19_df.std()['Case_Lag_1w'])
+print('Total Cases, 1 week lag, Mean:',cvd19_df.mean()['Case_Lag_1w'])
+fig = px.scatter(cvd19_df, x=(cvd19_df['Case_Lag_1w']), y=(cvd19_df['PM25']))
+fig.show()
+data1 = cvd19_df['Case_Lag_1w']
+data2 = cvd19_df['PM25']
+covariance = cov(data1, data2)
+print(covariance)
+corr, _ = pearsonr(data1, data2)
+print('Pearsons correlation: %.3f' % corr)
+corr, _ = spearmanr(data1, data2)
+print('Spearmans correlation: %.3f' % corr)
 
-pm25_cvd_test=pd.merge(wk_pm25,cvd19_hosp,how='left',on='id_value')
-pm25_cvd_test.head()
+#ANALYSIS ON KING COUNTY LEVEL
+
+pm25=pd.concat(map(pd.read_csv,glob.glob('atmos_data/purple_air_zip/*.csv')))
+pm25.drop_duplicates(['created_at','ZIP'],inplace=True)
+pm25['created_at']=pm25['created_at'].str.rstrip('UTC')
+pm25['Date']=pd.to_datetime(pm25['created_at'],format='%Y-%m-%d')
+pm25['ZIP']=pm25['ZIP'].astype(dtype=int)
+pm25=pm25.reset_index()
+pm25['Identifier']=pm25.apply(lambda x:[x.ZIP,x.Date],axis=1)
+pm25['id_value']=[','.join(map(str,l))for l in pm25['Identifier']]
+pm25.head()
+pm25.info()
+pm25.drop(pm25.columns[[0,1,5,6,9,10,12]], axis=1, inplace=True)
+pm25.isnull().values.any()
+pm25.dropna(axis=0, thresh=None, inplace=True)
+cvd19_hosp=pd.read_csv('covid_data/WA_daily_covid_hospitalization_zip.csv')
+cvd19_case=pd.read_csv('covid_data/WA_daily_covid_positive_zip.csv')
+cvd19_dth=pd.read_csv('covid_data/WA_daily_covid_death_zip.csv')
+cvd19_hosp['Date']=pd.to_datetime(cvd19_hosp['Admission_Date'],format='%m/%d/%y')
+cvd19_hosp['Identifier']=cvd19_hosp.apply(lambda x:[x.ZIP,x.Date],axis=1)
+cvd19_hosp['id_value']=[','.join(map(str,l))for l in cvd19_hosp['Identifier']]
+cvd19_hosp.drop(cvd19_hosp.columns[[1,3,4,5]], axis=1, inplace=True)
+cvd19_hosp['Hosp_Lag_24hr']=cvd19_hosp['Hospitalizations'].shift(1)
+cvd19_hosp['Hosp_Lag_48hr']=cvd19_hosp['Hospitalizations'].shift(2)
+cvd19_hosp['Hosp_Lag_1w']=cvd19_hosp['Hospitalizations'].shift(7)
+cvd19_case['Date']=pd.to_datetime(cvd19_case['Result_Date'],format='%m/%d/%y')
+cvd19_case=cvd19_case.reset_index()
+cvd19_case['Identifier']=cvd19_case.apply(lambda x:[x.ZIP,x.Date],axis=1)
+cvd19_case['id_value']=[','.join(map(str,l))for l in cvd19_case['Identifier']]
+cvd19_case.drop(cvd19_case.columns[[0,1,2,4,5,6]], axis=1, inplace=True)
+cvd19_case['Case_Lag_24hr']=cvd19_case['Positives'].shift(1)
+cvd19_case['Case_Lag_48hr']=cvd19_case['Positives'].shift(2)
+cvd19_case['Case_Lag_1w']=cvd19_case['Positives'].shift(7)
+cvd19_dth['Date']=pd.to_datetime(cvd19_dth['Death_Date'],format='%m/%d/%y')
+cvd19_dth=cvd19_dth.reset_index()
+cvd19_dth['Identifier']=cvd19_dth.apply(lambda x:[x.ZIP,x.Date],axis=1)
+cvd19_dth['id_value']=[','.join(map(str,l))for l in cvd19_dth['Identifier']]
+cvd19_dth.drop(cvd19_dth.columns[[0,1,2,4,5,6]], axis=1, inplace=True)
+cvd19_dth['Death_Lag_24hr']=cvd19_dth['Deaths'].shift(1)
+cvd19_dth['Death_Lag_48hr']=cvd19_dth['Deaths'].shift(2)
+cvd19_dth['Death_Lag_1w']=cvd19_dth['Deaths'].shift(7)
+cvd19_df=pd.merge(cvd19_hosp,cvd19_case,how='left',on='id_value')
+cvd19_df=pd.merge(cvd19_df,cvd19_dth,how='left',on='id_value')
+zip_df=pd.read_csv('zip_code_king_fixed.csv', usecols = ['ZIP','PREFERRED_','POINT_X','POINT_Y'])
+zip_df.rename(columns = {'PREFERRED_':'City','POINT_X':'Longitude','POINT_Y':'Latitude'}, inplace = True)
+cvd19_df=pd.merge(cvd19_df,zip_df,how='left',on='ZIP')
+cvd19_df=pd.merge(cvd19_df,pm25,how='left',on='id_value')
+cvd19_df=cvd19_df.loc[(cvd19_df['Date']>='2020-03-02')&(cvd19_df['Date']<'2021-03-01')]
+cvd19_df.isnull().values.any()
+cvd19_df.dropna(axis=0, thresh=None, inplace=True)
+cvd19_df.drop(cvd19_df.columns[[2,14]], axis=1, inplace=True)
+cvd19_df=cvd19_df.reset_index(drop=True)
+geometry=[Point(xy) for xy in zip(cvd19_df['Longitude'], cvd19_df['Latitude'])]
+crs={'init':'epsg:4326'}
+cvd19_df=gpd.GeoDataFrame(cvd19_df,crs=crs,geometry=geometry)
+waste=rasterio.open('tiffs/hazard_waste_4326.tif')
+water=rasterio.open('tiffs/wastewater_4326.tif')
+toxic=rasterio.open('tiffs/toxic_4326.tif')
+traffic=rasterio.open('tiffs/heavy_traffic_4326.tif')
+ethnicity=rasterio.open('tiffs/people_of_color_4326.tif')
+unemployment=rasterio.open('tiffs/unemployed_popn_4326.tif')
+sensitive=rasterio.open('tiffs/sensitive_popn_4326.tif')
+english=rasterio.open('tiffs/limited_eng_4326.tif')
+coords=[(x,y) for x, y in zip(cvd19_df.Longitude, cvd19_df.Latitude)] 
+cvd19_df['Waste']=[x[0] for x in waste.sample(coords)]
+cvd19_df['Traffic']=[x[0] for x in traffic.sample(coords)]
+cvd19_df['Toxic']=[x[0] for x in toxic.sample(coords)]
+cvd19_df['Water']=[x[0] for x in water.sample(coords)]
+cvd19_df['Ethnicity']=[x[0] for x in ethnicity.sample(coords)]
+cvd19_df['Unemployment']=[x[0] for x in unemployment.sample(coords)]
+cvd19_df['Sensitive_Health']=[x[0] for x in sensitive.sample(coords)]
+cvd19_df['English']=[x[0] for x in english.sample(coords)]
+fig, ax = plt.subplots(figsize=(20,20))
+sns.heatmap(cvd19_df.corr(), cmap='icefire', annot=True) 
+cvd19_df.drop(cvd19_df.columns[[2,3,6,7,10,11,15,17,21,23,25,27,29]], axis=1, inplace=True)
+fig, ax = plt.subplots(figsize=(20,20))
+sns.heatmap(cvd19_df.corr(), cmap='icefire', annot=True) 
+cvd19_df['week']=cvd19_df['Date'].apply(lambda x:x.week)
+cvd19_df['Positives'].unique()
+hmap = folium.Map(location=[47.5480,-121.9836], tiles="Open Street Map", zoom_start=9)
+pm25_viz=[]
+for week in cvd19_df.week.sort_values().unique():
+    pm25_viz.append(cvd19_df.loc[cvd19_df.week==week,['Latitude','Longitude',
+                                                                   'PM2.5_CF1_ug/m3']].groupby(['Latitude',
+                                                                                      'Longitude']).mean().reset_index().values.tolist())cvd_viz=[]
+for week in cvd19_df.week.sort_values().unique():
+    cvd_viz.append(cvd19_df.loc[cvd19_df.week==week,['Latitude','Longitude',
+                                                                   'Case_Lag_1w']].groupby(['Latitude',
+                                                                                      'Longitude']).mean().reset_index().values.tolist())
+HeatMapWithTime(pm25_viz,radius=70,name='Particulate Matter 2.5',gradient={0.008:'green',0.25:'yellow',0.4:'orange',0.6:'red',0.8:'darkred',1:'purple'},min_opacity=0.5,
+                max_opacity=0.8,use_local_extrema=True).add_to(hmap)
+HeatMapWithTime(cvd_viz,radius=70,name='Covid-19 Cases (1w Lag)',gradient={0.015:'white',0.07:'beige',0.22:'lightgray',0.44:'gray',0.67:'darkgray',1:'black'},min_opacity=0.5,
+                max_opacity=0.8,use_local_extrema=True).add_to(hmap)
+folium.LayerControl(collapsed=False).add_to(hmap)
+hmap
+print('PM 2.5 SD:',cvd19_df.std()['PM2.5_CF1_ug/m3'])
+print('PM 2.5 Mean:',cvd19_df.mean()['PM2.5_CF1_ug/m3'])
+print('Total Cases, 1 week lag, SD:',cvd19_df.std()['Case_Lag_1w'])
+print('Total Cases, 1 week lag, Mean:',cvd19_df.mean()['Case_Lag_1w'])
+data1 = cvd19_df['Case_Lag_1w']
+data2 = cvd19_df['PM2.5_CF1_ug/m3']
+covariance = cov(data1, data2)
+print(covariance)
+corr, _ = pearsonr(data1, data2)
+print('Pearsons correlation: %.3f' % corr)
+corr, _ = spearmanr(data1, data2)
+print('Spearmans correlation: %.3f' % corr)
+cvd19_prs=cvd19_df.copy()
+cvd19_prs.drop(cvd19_prs.columns[[0,1,2,3,5,6,12]], axis=1, inplace=True)
+cvd19_prs.reset_index(drop=True)
+cvd19_prs['Case_Y']=np.where((cvd19_prs.Case_Lag_1w>=1), '1','0')
+cvd19_prs['Case_Y']=cvd19_prs['Case_Y'].astype(dtype=int)
+cols_at_end = ['Case_Y']
+cvd19_prs=cvd19_prs[[c for c in cvd19_prs if c not in cols_at_end] 
+      +[c for c in cols_at_end if c in cvd19_prs]]
+X=cvd19_prs.drop(['Case_Lag_1w','Longitude','Latitude','Case_Y'], axis=1)
+y=cvd19_prs['Case_Y']
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=101)
+rf=RandomForestClassifier(n_estimators=100, criterion='gini') 
+rf.fit(X_train, y_train)
+rf_pred=rf.predict(X_test)
+print(confusion_matrix(y_test, rf_pred))
+print('\n')
+print(classification_report(y_test, rf_pred))
+from sklearn.model_selection import RandomizedSearchCV
+n_estimators = [int(x) for x in np.linspace(start = 200, stop = 2000, num = 10)]
+max_features = ['auto', 'sqrt']
+max_depth = [int(x) for x in np.linspace(10, 110, num = 11)]
+max_depth.append(None)
+min_samples_split = [2, 5, 10]
+min_samples_leaf = [1, 2, 4]
+bootstrap = [True, False]
+random_grid = {'n_estimators': n_estimators,
+               'max_features': max_features,
+               'max_depth': max_depth,
+               'min_samples_split': min_samples_split,
+               'min_samples_leaf': min_samples_leaf,
+               'bootstrap': bootstrap}
+rf = RandomForestClassifier()
+rf_random = RandomizedSearchCV(estimator = rf, param_distributions = random_grid, n_iter = 100, cv = 3, verbose=2, random_state=42, n_jobs = -1)
+rf_random.fit(X_train,y_train)
+rf_random.best_params_
+rf=RandomForestClassifier(n_estimators=600, criterion='gini') 
+rf.fit(X_train, y_train)
+rf_pred=rf.predict(X_test)
+print(confusion_matrix(y_test, rf_pred))
+print('\n')
+print(classification_report(y_test, rf_pred))
+svm=SVC(probability=True)
+svm.fit(X_train, y_train)
+svm_pred=svm.predict(X_test)
+print(confusion_matrix(y_test, svm_pred))
+print('\n')
+print(classification_report(y_test, svm_pred))
+param_grid={'C':[100], 'gamma':[0.001], 'kernel':['rbf']} 
+grid=GridSearchCV(SVC(probability=True), param_grid, refit=True, verbose=3)
+grid.fit(X_train, y_train)
+svm_pred2=grid.predict(X_test)
+print(confusion_matrix(y_test, svm_pred2))
+print('\n')
+print(classification_report(y_test, svm_pred2))
+y_pred_prob_rf=rf.predict_proba(X_test)[:,1]
+fpr1, tpr1, threshold1=metrics.roc_curve(y_test, y_pred_prob_rf)
+roc_auc1=metrics.auc(fpr1, tpr1)
+y_pred_prob_svm=grid.predict_proba(X_test)[:,1]
+fpr2, tpr2, threshold2=metrics.roc_curve(y_test, y_pred_prob_svm)
+roc_auc2=metrics.auc(fpr2, tpr2)
+plt.plot(fpr1, tpr1, 'b', label='RF AUC = %0.2f' %roc_auc1, color='blue')
+plt.plot(fpr2, tpr2, 'b', label='SVM AUC = %0.2f' %roc_auc2, color='orange')
+plt.title('AUC-ROC: Presence Prediction of COVID-19 Occurrence')
+plt.legend(loc='lower right')
+plt.plot([0, 1], [0, 1],'r:')
+plt.xlim([0, 1])
+plt.ylim([0, 1])
+plt.ylabel('TPR')
+plt.xlabel('FPR')
+plt.show()
+cvd19_totals=cvd19_df.copy()
+cvd19_totals.info()
+zip_hosp=cvd19_totals.groupby('ZIP')['Hospitalizations'].sum()
+zip_hosp=pd.DataFrame(zip_hosp)
+zip_pos=cvd19_totals.groupby('ZIP')['Positives'].sum()
+zip_pos=pd.DataFrame(zip_pos)
+zip_dth=cvd19_totals.groupby('ZIP')['Deaths'].sum()
+zip_dth=pd.DataFrame(zip_dth)
+zip_all=pd.merge(zip_hosp,zip_pos,how='left',on='ZIP')
+zip_all=pd.merge(zip_all,zip_dth,how='left',on='ZIP')
+zip_all=pd.merge(zip_all,zip_df,how='left',on='ZIP')
+zip_all.drop(zip_all.columns[[4]], axis=1, inplace=True)
+temp=rasterio.open('tiffs/temp_0320_0321.tif')
+pm25=rasterio.open('tiffs/pm25_4326.tif')
+coords=[(x,y) for x, y in zip(zip_all.Longitude, zip_all.Latitude)] 
+zip_all['PM25']=[x[0] for x in pm25.sample(coords)]
+zip_all['Temp']=[x[0] for x in temp.sample(coords)]
+zip_all['Toxic']=[x[0] for x in toxic.sample(coords)]
+zip_all['Waste']=[x[0] for x in waste.sample(coords)]
+zip_all['Ethnicity']=[x[0] for x in ethnicity.sample(coords)]
+zip_all['Sensitive_Health']=[x[0] for x in sensitive.sample(coords)]
+fig, ax = plt.subplots(figsize=(16,16))
+sns.heatmap(zip_all.corr(), cmap='icefire', annot=True) 
+zip_all.drop(zip_all.columns[[0]], axis=1, inplace=True)
+zip_all.describe()
+fig = px.scatter(zip_all, x=(zip_all['Positives']), y=(zip_all['PM25']))
+fig.show()
+data1 = zip_all['Positives']
+data2 = zip_all['PM25']
+covariance = cov(data1, data2)
+print(covariance)
+corr, _ = pearsonr(data1, data2)
+print('Pearsons correlation: %.3f' % corr)
+corr, _ = spearmanr(data1, data2)
+print('Spearmans correlation: %.3f' % corr)
+cols_at_end = ['Positives']
+zip_all=zip_all[[c for c in zip_all if c not in cols_at_end] 
+      +[c for c in cols_at_end if c in zip_all]]
+X=zip_all.drop(['Longitude','Latitude','Hospitalizations','Deaths','Positives'], axis=1)
+y=zip_all['Positives']
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=101)
+lm=LinearRegression()
+lm.fit(X_train, y_train)
+y_pred=lm.predict(X_test)
+lmdf=pd.DataFrame({'Actual': y_test, 'Predicted': y_pred})
+lmdf
+fig = px.scatter(lmdf, x=(lmdf['Actual']), y=(lmdf['Predicted']))
+fig.show()
+sns.distplot((y_test-y_pred),bins=50);
+print('Mean Absolute Error:', metrics.mean_absolute_error(y_test, y_pred))
+print('Mean Squared Error:', metrics.mean_squared_error(y_test, y_pred))
+print('R-Squared:', metrics.r2_score(y_test,y_pred))
+print('Root Mean Squared Error:', np.sqrt(metrics.mean_squared_error(y_test, y_pred)))
+reg = linear_model.BayesianRidge()
+reg.fit(X_train, y_train)
+y_pred=reg.predict(X_test)
+regdf=pd.DataFrame({'Actual': y_test, 'Predicted': y_pred})
+regdf
+print('Mean Absolute Error:', metrics.mean_absolute_error(y_test, y_pred))
+print('Mean Squared Error:', metrics.mean_squared_error(y_test, y_pred))
+print('R-Squared:', metrics.r2_score(y_test,y_pred))
+print('Root Mean Squared Error:', np.sqrt(metrics.mean_squared_error(y_test, y_pred)))
+regrf=RandomForestRegressor(n_estimators=100, random_state=101) 
+regrf.fit(X_train, y_train)
+regrf_pred=regrf.predict(X_test)
+y_pred=regrf.predict(X_test)
+regrfdf=pd.DataFrame({'Actual': y_test, 'Predicted': y_pred})
+regrfdf
+print('Mean Absolute Error:', metrics.mean_absolute_error(y_test, y_pred))
+print('Mean Squared Error:', metrics.mean_squared_error(y_test, y_pred))
+print('R-Squared:', metrics.r2_score(y_test,y_pred))
+print('Root Mean Squared Error:', np.sqrt(metrics.mean_squared_error(y_test, y_pred)))
+svr=SVR(kernel='rbf') 
+svr.fit(X_train, y_train)
+svr_pred=svr.predict(X_test)
+y_pred=svr.predict(X_test)
+svrdf=pd.DataFrame({'Actual': y_test, 'Predicted': y_pred})
+svrdf
+print('Mean Absolute Error:', metrics.mean_absolute_error(y_test, y_pred))
+print('Mean Squared Error:', metrics.mean_squared_error(y_test, y_pred))
+print('R-Squared:', metrics.r2_score(y_test,y_pred))
+print('Root Mean Squared Error:', np.sqrt(metrics.mean_squared_error(y_test, y_pred)))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
